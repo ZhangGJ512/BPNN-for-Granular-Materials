@@ -1,0 +1,218 @@
+model new
+
+program call 'record_Data.p2fis' suppress
+;program call 'record_D.dat' suppress
+
+model domain extent -0.5 0.5 
+
+fish define built_model
+    model_ball_kn=1e8
+    model_ball_ks=5e7
+    model_wall_kn=1e9
+    model_wall_ks=5e8
+    command
+        contact cmat default model linear property kn [model_ball_kn] ks [model_ball_ks] fric 0.0 ...
+                type ball-ball
+        contact cmat default model linear property kn [model_wall_kn] ks [model_wall_ks] fric 0.0 ...
+                type ball-facet
+    endcommand
+end
+
+
+fish define built_wall
+    command
+        wall generate name 'vessel' box -0.25 0.25 expand 1.5
+    endcommand
+    wp_left  = wall.find('vesselLeft')
+    wp_right = wall.find('vesselRight')
+    wp_bot   = wall.find('vesselBottom')
+    wp_top   = wall.find('vesselTop')
+end
+
+
+fish define built_ball
+    command
+        ball distribute porosity 0.15 radius 0.002 0.004 box -0.25 0.25
+        ball attribute density 2600.0 damp 0.7
+    endcommand
+    command
+        model cycle 1000 calm 10
+        model solve ratio-average 1e-3
+        model calm
+    endcommand
+end
+
+
+fish define wlx
+  wlx  = wall.pos.x(wp_right) - wall.pos.x(wp_left)
+end
+fish define wly
+  wly  = wall.pos.y(wp_top)   - wall.pos.y(wp_bot)
+end
+
+
+fish define servo_walls
+    wall.servo.force.x(wp_right) =   txx*wly
+    wall.servo.force.x(wp_left)  =  -txx*wly
+    wall.servo.force.y(wp_top)   =   tyy*wlx
+    wall.servo.force.y(wp_bot)   =  -tyy*wlx
+end
+fish define stop_me1
+    if math.abs((wsyy - tyy)/tyy) > tol
+        exit
+    endif
+    if math.abs((wsxx - txx)/txx) > tol
+        exit
+    endif
+    if mech.solve("ratio-average") > 1e-5
+        exit
+    endif
+    stop_me1 = 1
+end
+fish define built_servo_on
+    txx = -1.0e5
+    tyy = -1.0e5
+    tol = 1e-4
+    stop_me1=0
+    command
+        wall servo activate on force-x [ txx*wly] ...
+                            velocity-max 1 range set name 'vesselRight'
+        wall servo activate on force-x [-txx*wly] ...
+                            velocity-max 1 range set name 'vesselLeft'
+        wall servo activate on force-y [ tyy*wlx] ...
+                            velocity-max 1 range set name 'vesselTop'
+        wall servo activate on force-y [-tyy*wlx] ...
+                            velocity-max 1 range set name 'vesselBottom' 
+    endcommand
+    
+    command
+        fish callback add @servo_walls  9.0
+        
+        fish history name 41 @wsxx
+        fish history name 42 @wsyy 
+        
+        model orientation-tracking on
+        ball attribute displacement multiply 0.0
+        model calm
+        
+        model solve fish-halt @stop_me1
+    endcommand
+end
+
+fish define built_servo_off
+    ly0 = wly
+    lx0 = wlx
+    wexx = 0.0
+    weyy = 0.0
+    
+    command
+        fish history name 61 @wexx
+        fish history name 62 @weyy
+       
+        wall servo activate off range set name 'vesselTop' 
+        wall servo activate off range set name 'vesselBottom' 
+        wall servo activate off range set name 'vesselRight' 
+        wall servo activate off range set name 'vesselLeft' 
+    endcommand
+end
+
+
+fish define stop_me2
+    record_num = record_num + 1
+    if record_num == 0
+       calculateC(ii)
+       calculateS(ii)
+       ;calculateD(ii)
+       calculateE(ii)
+       record_num = -2500
+    endif
+
+    ;if wexx <= -target then
+    ;    stop_me2 = 1
+    ;endif
+    
+    if weyy <= -target then
+        stop_me2 = 1
+    endif
+end
+fish define solve_all
+    loop i(1,20)
+        ;i=1
+        
+        ;ratex = 0.001
+        ;ratey = -0.001+0.00002*(i-1)
+        ;ii=2*i-1
+        
+        
+        ;ratex = -0.001+0.00002*(i-1)
+        ;ratey = 0.001
+        ;ii=2*i
+        
+        ;ratex = 0.001
+        ;ratey = -0.001+0.000049*(2*i-1)
+        ;ii=2*i-1
+        
+        ;ratex = -0.001+0.000049*(2*i-1)
+        ;ratey = 0.001
+        ;ii=2*i
+        
+        ;ratex = 0.001
+        ;ratey = -0.001+0.0000493*(2*i)
+        ;ii=2*i-1
+        
+        ratex = -0.001+0.0000493*(2*i)
+        ratey = 0.001
+        ii=2*i
+        
+        command
+            ball delete
+            wall delete
+            contact cmat remove all
+            history delete
+            
+            fish callback remove @servo_walls  9.0
+            
+            model random 10002
+            
+            @built_model
+            @built_wall
+            @built_ball
+        endcommand
+        
+        
+        built_servo_on
+        
+        command
+            ball property 'fric' 0.3
+            wall property 'fric' 0.0
+        endcommand
+        
+        ;command
+        ;    pause key
+        ;endcommand
+        
+        built_servo_off
+        
+        command
+            wall attribute velocity-x [ -ratex*wlx] range set name 'vesselRight'
+            wall attribute velocity-x [ratex*wlx] range set name 'vesselLeft'
+            wall attribute velocity-y [ -ratey*wly] range set name 'vesselTop'
+            wall attribute velocity-y [ ratey*wly] range set name 'vesselBottom'
+        endcommand
+        
+        
+        record_num = -1
+        stop_me2 = 0
+        target = 0.075
+        command
+            ball attribute displacement multiply 0.0
+            ball attribute velocity multiply 0.0
+            model calm
+            
+            model mechanical timestep maximum 2e-5
+            
+            model solve fish-halt @stop_me2
+        endcommand
+    endloop
+end
+@solve_all

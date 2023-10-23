@@ -1,0 +1,130 @@
+model new
+
+program call 'record_Data.p2fis' suppress
+
+model domain extent -0.5 0.5 
+model random 10002
+
+[model_ball_kn=1e8]
+[model_ball_ks=5e7]
+[model_wall_kn=1e9]
+[model_wall_ks=5e8]
+
+contact cmat default model linear property kn [model_ball_kn] ks [model_ball_ks] fric 0.0 ...
+        type ball-ball
+contact cmat default model linear property kn [model_wall_kn] ks [model_wall_ks] fric 0.0 ...
+        type ball-facet
+
+
+wall generate name 'vessel' box -0.25 0.25 expand 1.5
+[wp_left  = wall.find('vesselLeft')]
+[wp_right = wall.find('vesselRight')]
+[wp_bot   = wall.find('vesselBottom')]
+[wp_top   = wall.find('vesselTop')]
+
+
+ball distribute porosity 0.15 radius 0.002 0.004 box -0.25 0.25
+ball attribute density 2600.0 damp 0.7
+model cycle 1000 calm 10
+model solve ratio-average 1e-3
+model calm
+
+
+fish define wlx
+  wlx  = wall.pos.x(wp_right) - wall.pos.x(wp_left)
+end
+fish define wly
+  wly  = wall.pos.y(wp_top)   - wall.pos.y(wp_bot)
+end
+
+[tol = 1e-4]
+[stop_me1=0]
+fish define servo_walls
+    wall.servo.force.x(wp_right) =   txx*wly
+    wall.servo.force.x(wp_left)  =  -txx*wly
+    wall.servo.force.y(wp_top)   =   tyy*wlx
+    wall.servo.force.y(wp_bot)   =  -tyy*wlx
+end
+fish define stop_me1
+    if math.abs((wsyy - tyy)/tyy) > tol
+        exit
+    endif
+    if math.abs((wsxx - txx)/txx) > tol
+        exit
+    endif
+    if mech.solve("ratio-average") > 1e-5
+        exit
+    endif
+    stop_me1 = 1
+end
+
+[txx = -1.5e5]
+[tyy = -1.5e5]
+wall servo activate on force-x [ txx*wly] ...
+                    velocity-max 50 range set name 'vesselRight'
+wall servo activate on force-x [-txx*wly] ...
+                    velocity-max 50 range set name 'vesselLeft'
+wall servo activate on force-y [ tyy*wlx] ...
+                    velocity-max 50 range set name 'vesselTop'
+wall servo activate on force-y [-tyy*wlx] ...
+                    velocity-max 50 range set name 'vesselBottom' 
+
+fish callback add @servo_walls  9.0
+
+fish history name 41 @wsxx
+fish history name 42 @wsyy 
+
+model orientation-tracking on
+ball attribute displacement multiply 0.0
+model calm
+
+model solve fish-halt @stop_me1
+
+ball property 'fric' 0.3
+wall property 'fric' 0.0
+
+[ly0 = wly]
+[lx0 = wlx]
+[wsyy0 = wsyy]
+[wexx = 0.0]
+[weyy = 0.0]
+
+fish history name 61 @wexx
+fish history name 62 @weyy
+history purge
+
+
+[rate = 0.0005]
+wall attribute velocity-y [-rate*wly] range set name 'vesselTop'
+wall attribute velocity-y [ rate*wly] range set name 'vesselBottom'
+wall servo activate off range set name 'vesselTop' 
+wall servo activate off range set name 'vesselBottom' 
+;wall servo activate off range set name 'vesselRight' 
+;wall servo activate off range set name 'vesselLeft' 
+model calm
+
+
+[stop_me2 = 0]
+[target = 5e-4]
+fish define stop_me2
+    if weyy <= -target then
+        stop_me2 = 1
+    endif
+end
+model solve fish-halt @stop_me2
+
+;model solve cycles 1000000
+[young_modulus = (wsyy-wsyy0)/weyy]
+[poisson_ratio = -wexx/weyy]
+[shear_modulus = 0.5*young_modulus/(1+poisson_ratio)]
+
+model save 'Calibration_EvG_7.5e4'
+
+[stop_me3 = 0]
+[target = 0.05]
+fish define stop_me3
+    if weyy <= -target then
+        stop_me3 = 1
+    endif
+end
+model solve fish-halt @stop_me3

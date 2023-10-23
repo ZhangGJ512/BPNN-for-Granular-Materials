@@ -1,0 +1,105 @@
+fish define wsxx
+  wsxx = 0.5*(wall.force.contact.x(wp_left) ...
+         - wall.force.contact.x(wp_right))/ wly 
+end
+fish define wsyy
+  wsyy = 0.5*(wall.force.contact.y(wp_bot) ...
+         -  wall.force.contact.y(wp_top) )/ wlx
+end
+
+fish define wexx
+  wexx  = (wlx - lx0) / lx0 
+end
+fish define weyy
+  weyy = (wly - ly0) / ly0
+end
+
+fish define calculateS(ii)
+    wsxx = 0.5*(wall.force.contact.x(wp_left) ...
+         - wall.force.contact.x(wp_right))/ wly 
+
+    wsyy = 0.5*(wall.force.contact.y(wp_bot) ...
+         -  wall.force.contact.y(wp_top) )/ wlx
+
+    array s(1)
+    s(1)=string(wsxx)+' '+string(wsyy)
+    
+    file_name = 's'+string(ii)+'.txt'
+    fs = file.open(file_name, 2, 1)
+    fs = file.write(s,1)
+    fs = file.close()
+end
+
+fish define calculateE(ii)
+    wexx = (wlx - lx0) / lx0
+    weyy = (wly - ly0) / ly0
+    
+    array e(1)
+    e(1)=string(wexx)+' '+string(weyy)
+    
+    file_name = 'e'+string(ii)+'.txt'
+    fe = file.open(file_name, 2, 1)
+    fe = file.write(e,1)
+    fe = file.close()
+end
+
+fish define calculateC(ii)   
+    c1111=0
+    c1122=0
+    c2211=0
+    c2222=0
+
+    a1111=0
+    a1122=0
+    a2211=0
+    a2222=0
+
+    b1111=0
+    b1122=0
+    b2211=0
+    b2222=0
+    
+    lx = 0.0
+    ly = 0.0
+    v=wlx*wly
+    kn=[model_ball_kn]
+    ks=[model_ball_ks]
+    
+    loop foreach local cp1 contact.list('ball-ball')
+        lx = contact.normal.x(cp1)
+        ly = contact.normal.y(cp1)
+        
+        bp1 = contact.end1(cp1)
+        bp2 = contact.end2(cp1)
+        
+        xball1=ball.pos.x(bp1)
+        yball1=ball.pos.y(bp1)
+        xball2=ball.pos.x(bp2)
+        yball2=ball.pos.y(bp2)
+        
+        lk=math.sqrt((xball2-xball1)*(xball2-xball1)+(yball2-yball1)*(yball2-yball1))
+        
+        a1111=a1111+lk*lk*lx*lx*lx*lx/v
+        a1122=a1122+lk*lk*lx*lx*ly*ly/v
+        a2211=a2211+lk*lk*ly*ly*lx*lx/v
+        a2222=a2222+lk*lk*ly*ly*ly*ly/v
+        
+        b1111=b1111+lk*lk*lx*lx/v
+        b1122=0
+        b2211=0
+        b2222=b2222+lk*lk*ly*ly/v
+    endloop
+    
+    c1111=(kn-ks)*a1111+ks*b1111
+    c1122=(kn-ks)*a1122+ks*b1122
+    c2211=(kn-ks)*a2211+ks*b2211
+    c2222=(kn-ks)*a2222+ks*b2222
+    
+    array c(1)
+    c(1)=string(c1111)+' '+string(c1122)+' '+string(c2211)+' '+string(c2222)
+
+    file_name = 'c'+string(ii)+'.txt'
+    fc = file.open(file_name, 2, 1)
+    fc = file.write(c,1)
+    fc = file.close()
+end
